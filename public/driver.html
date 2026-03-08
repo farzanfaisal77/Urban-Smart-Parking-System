@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Driver Portal - Smart Parking</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <script src="/js/main.js"></script>
+    <style>
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8); backdrop-filter: blur(4px);
+            display: flex; justify-content: center; align-items: center;
+            z-index: 1000;
+        }
+        .modal {
+            background: var(--bg-card); padding: 2rem; border-radius: 12px;
+            width: 100%; max-width: 500px; border: 1px solid #334155;
+        }
+        .badge {
+            display: inline-block; padding: 0.2rem 0.5rem; border-radius: 4px;
+            font-size: 0.75rem; text-transform: uppercase; font-weight: bold;
+        }
+        .badge.car { background: #3b82f6; color: #fff;}
+        .badge.bike { background: #eab308; color: #000;}
+        .badge.lorry { background: #ef4444; color: #fff;}
+        
+        .slot-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.5rem; min-height: 80px; }
+        .slot-btn .slot-type-indicator { font-size: 0.7rem; opacity: 0.8; }
+        
+        #reserve-time-container.hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container" style="max-width: 1400px;">
+        <header class="dashboard-header animate-slide-up">
+            <div>
+                <h1 style="background: linear-gradient(to right, #22c55e, #6ee7b7); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Driver Dashboard</h1>
+            </div>
+            <div id="user-info"></div>
+        </header>
+
+        <div style="display: grid; grid-template-columns: 350px 1fr; gap: 2rem;">
+            <!-- Left Sidebar: Vehicles & Phone -->
+            <div style="display: flex; flex-direction: column; gap: 2rem;">
+                
+                <div class="card animate-fade-in text-slate-100" id="phone-prompt-section" style="display: none; border-color: #eab308;">
+                    <h3 style="margin-bottom: 1rem; color: #eab308;">Phone Required</h3>
+                    <p style="color:var(--text-muted); font-size: 0.875rem; margin-bottom: 1rem;">Please provide a phone number before registering vehicles.</p>
+                    <form id="phone-form">
+                        <div class="form-group">
+                            <input type="tel" id="user-phone" placeholder="e.g. 555-0100" required>
+                        </div>
+                        <button class="btn" style="width:100%; padding:0.5rem;">Save Number</button>
+                    </form>
+                </div>
+
+                <div class="card animate-fade-in" id="vehicle-manager-section" style="display: none;">
+                    <h3 style="margin-bottom: 1.5rem; font-size: 1.5rem;">My Vehicles</h3>
+                    
+                    <div id="vehicles-list" style="margin-bottom: 2rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                        <!-- Injected -->
+                    </div>
+
+                    <h4 style="font-size: 1rem; margin-bottom: 1rem; border-top: 1px solid #334155; padding-top: 1rem;">Add New Vehicle</h4>
+                    <form id="vehicle-form">
+                        <div class="form-group">
+                            <label>License Plate</label>
+                            <input type="text" id="v-plate" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Vehicle Type</label>
+                            <select id="v-type" style="width: 100%; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid #334155; background-color: #0f172a; color: white;" required>
+                                <option value="car">Car</option>
+                                <option value="bike">Bike</option>
+                                <option value="lorry">Lorry</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Make/Model</label>
+                            <input type="text" id="v-make">
+                        </div>
+                        <button class="btn btn-secondary" style="width:100%; padding: 0.5rem;">Add Vehicle</button>
+                    </form>
+                </div>
+
+            </div>
+
+            <!-- Right Main: Sessions & Discovery -->
+            <div>
+                <h2 style="margin-bottom: 1rem; color: #facc15;">My Active Parking</h2>
+                <div id="sessions-container" style="display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 3rem;"></div>
+
+                <h2 style="margin-bottom: 1rem;">Find Parking</h2>
+                <div id="discovery-container" class="grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reservation Modal -->
+    <div id="reserve-modal" class="modal-overlay hidden">
+        <div class="modal">
+            <h2 style="margin-bottom: 0.5rem;">Reserve Slot <span id="modal-slot-title"></span></h2>
+            <p style="color:var(--text-muted); margin-bottom: 1.5rem;">Lot: <span id="modal-lot-title"></span></p>
+            
+            <form id="reserve-form">
+                <input type="hidden" id="modal-slot-id">
+                
+                <div class="form-group">
+                    <label>Select Vehicle to Park</label>
+                    <select id="modal-vehicle-id" style="width: 100%; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid #334155; background-color: #0f172a; color: white;" required>
+                        <!-- Injected matching vehicles -->
+                    </select>
+                </div>
+                
+                <div class="form-group" style="margin-top: 2rem;">
+                    <label>Reservation Type</label>
+                    <select id="modal-action-type" onchange="toggleTimeInput()" style="width: 100%; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid #334155; background-color: #0f172a; color: white;" required>
+                        <option value="now">Park Now (Immediate Entry)</option>
+                        <option value="later">Reserve for Later</option>
+                    </select>
+                </div>
+
+                <div class="form-group hidden" id="reserve-time-container">
+                    <label>Arrival Time</label>
+                    <input type="datetime-local" id="modal-time" style="color-scheme: dark;">
+                </div>
+
+                <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+                    <button type="button" onclick="closeModal()" class="btn btn-secondary" style="width:50%;">Cancel</button>
+                    <button type="submit" class="btn" style="width:50%;">Confirm</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        requireAuth('driver');
+        let myVehicles = [];
+
+        // UI toggles
+        const phoneSec = document.getElementById('phone-prompt-section');
+        const vehicleSec = document.getElementById('vehicle-manager-section');
+        
+        document.addEventListener('DOMContentLoaded', async () => {
+            if (!currentUser.phone) {
+                phoneSec.style.display = 'block';
+            } else {
+                vehicleSec.style.display = 'block';
+                await loadVehicles();
+            }
+            reloadUI();
+        });
+
+        // Add Phone
+        document.getElementById('phone-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const phoneVal = document.getElementById('user-phone').value;
+            try {
+                await apiCall('/user/phone', 'POST', { user_id: currentUser.id, phone: phoneVal });
+                currentUser.phone = phoneVal;
+                localStorage.setItem('user', JSON.stringify(currentUser));
+                phoneSec.style.display = 'none';
+                vehicleSec.style.display = 'block';
+                await loadVehicles();
+            } catch(e) { alert(e.message); }
+        };
+
+        // Add Vehicle
+        document.getElementById('vehicle-form').onsubmit = async (e) => {
+            e.preventDefault();
+            try {
+                await apiCall('/vehicles', 'POST', {
+                    owner_id: currentUser.id,
+                    license_plate: document.getElementById('v-plate').value,
+                    type: document.getElementById('v-type').value,
+                    make_model: document.getElementById('v-make').value
+                });
+                document.getElementById('vehicle-form').reset();
+                await loadVehicles();
+            } catch(e) { alert(e.message); }
+        };
+
+        async function loadVehicles() {
+            try {
+                myVehicles = await apiCall(`/vehicles/${currentUser.id}`);
+                const list = document.getElementById('vehicles-list');
+                
+                if (myVehicles.length === 0) list.innerHTML = '<p style="color:var(--text-muted); font-size:0.875rem;">No vehicles registered.</p>';
+                else {
+                    list.innerHTML = myVehicles.map(v => `
+                        <div style="background: rgba(255,255,255,0.05); border: 1px solid #334155; padding: 0.75rem; border-radius: 8px; display:flex; justify-content:space-between; align-items:center;">
+                            <div>
+                                <div style="font-weight:bold;">${v.license_plate}</div>
+                                <div style="font-size:0.75rem; color:var(--text-muted);">${v.make_model || 'Unknown Make'}</div>
+                            </div>
+                            <span class="badge ${v.type}">${v.type}</span>
+                        </div>
+                    `).join('');
+                }
+            } catch(e) { console.error('Error loading vehicles', e); }
+        }
+
+        async function loadSessions() {
+            const container = document.getElementById('sessions-container');
+            try {
+                const sessions = await apiCall(`/my-sessions/${currentUser.id}`);
+                
+                if (sessions.length === 0) {
+                    container.innerHTML = '<div style="color:var(--text-muted); padding: 1rem; border: 1px dashed #334155; border-radius: 8px; width: 100%;">You have no active parking sessions.</div>';
+                    return;
+                }
+
+                container.innerHTML = sessions.map(s => {
+                    const isReserved = s.status === 'reserved';
+                    const timeLbl = isReserved ? `Reserved For: ${new Date(s.reserved_time).toLocaleString()}` : 'Currently Parked (Now)';
+                    const color = isReserved ? '#3b82f6' : '#facc15';
+
+                    return `
+                    <div style="background: rgba(30,41,59,0.5); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border: 1px solid ${color}; padding: 1.5rem; border-radius: 12px; min-width: 300px; max-width: 350px;">
+                        <h4 style="font-size: 1.25rem; margin-bottom: 0.5rem; color: ${color};">${s.lot_name}</h4>
+                        <p style="margin-bottom: 0.5rem; color: var(--text-main);">Slot <b>${s.slot_number}</b> &bull; ${s.license_plate}</p>
+                        <p style="font-size:0.75rem; font-family:monospace; background: rgba(0,0,0,0.3); padding: 0.25rem 0.5rem; margin-bottom: 1.5rem; border-radius:4px;">
+                            ${timeLbl}
+                        </p>
+                        <button onclick="releaseSlot(${s.slot_id})" class="btn" style="width: 100%; border-radius: 8px; background: #ef4444; color: white; padding: 0.75rem;">
+                            ${isReserved ? 'Cancel Reservation' : 'Exit & Complete Session'}
+                        </button>
+                    </div>
+                `}).join('');
+            } catch(e) { console.error('Error loading sessions', e); }
+        }
+
+        async function loadDiscovery() {
+            const container = document.getElementById('discovery-container');
+            try {
+                const lots = await apiCall('/lots');
+                if (lots.length === 0) {
+                    container.innerHTML = '<p style="color:var(--text-muted)">No parking lots exist.</p>';
+                    return;
+                }
+
+                container.innerHTML = '';
+                for (let lot of lots) {
+                    const slots = await apiCall(`/lots/${lot.lot_id}/slots`);
+                    const lotEl = document.createElement('div');
+                    lotEl.className = 'card animate-fade-in';
+                    
+                    const slotButtons = slots.map(s => `
+                        <button onclick="openModal(${s.id}, '${s.slot_number}', '${lot.name}', '${s.status}', '${s.slot_type}')" 
+                                class="slot-btn ${s.status}" 
+                                style="width: 80px;"
+                                title="${s.status !== 'available' ? 'Not Available' : 'Click to park'}">
+                            <span>${s.slot_number}</span>
+                            <span class="badge ${s.slot_type}" style="font-size: 0.6rem;">${s.slot_type}</span>
+                        </button>
+                    `).join('');
+
+                    lotEl.innerHTML = `
+                        <h3 style="font-size: 1.5rem; margin-bottom: 0.5rem;">${lot.name}</h3>
+                        <p style="color:var(--text-muted); font-size: 0.875rem; margin-bottom: 1.5rem;">${lot.address}</p>
+                        <div class="slots-grid">${slotButtons}</div>
+                    `;
+                    container.appendChild(lotEl);
+                }
+            } catch(e) { console.error('Error loading lots', e); }
+        }
+
+        // Modal Logic
+        const modal = document.getElementById('reserve-modal');
+        function openModal(slotId, slotNumber, lotName, status, slotType) {
+            if (status !== 'available') return;
+            
+            // Generate list of matching vehicles
+            const validVehicles = myVehicles.filter(v => v.type === slotType);
+            const selectEl = document.getElementById('modal-vehicle-id');
+            
+            if (validVehicles.length === 0) {
+                alert(`You do not have any registered ${slotType}s to park in this slot.`);
+                return;
+            }
+
+            selectEl.innerHTML = validVehicles.map(v => `<option value="${v.id}">${v.license_plate} (${v.make_model})</option>`).join('');
+            
+            document.getElementById('modal-slot-id').value = slotId;
+            document.getElementById('modal-slot-title').innerText = slotNumber;
+            document.getElementById('modal-lot-title').innerText = lotName;
+            
+            modal.classList.remove('hidden');
+        }
+
+        function closeModal() {
+            modal.classList.add('hidden');
+            document.getElementById('reserve-form').reset();
+            toggleTimeInput(); // reset
+        }
+
+        window.toggleTimeInput = () => {
+            const t = document.getElementById('modal-action-type').value;
+            const tContainer = document.getElementById('reserve-time-container');
+            const tInput = document.getElementById('modal-time');
+            
+            if (t === 'later') {
+                tContainer.classList.remove('hidden');
+                tInput.required = true;
+            } else {
+                tContainer.classList.add('hidden');
+                tInput.required = false;
+            }
+        };
+
+        document.getElementById('reserve-form').onsubmit = async (e) => {
+            e.preventDefault();
+            try {
+                await apiCall('/reserve', 'POST', { 
+                    slot_id: document.getElementById('modal-slot-id').value, 
+                    driver_id: currentUser.id,
+                    vehicle_id: document.getElementById('modal-vehicle-id').value,
+                    action_type: document.getElementById('modal-action-type').value,
+                    time: document.getElementById('modal-time').value
+                });
+                closeModal();
+                reloadUI();
+            } catch(e) {
+                alert(e.message);
+            }
+        };
+
+        window.releaseSlot = async (slotId) => {
+            try {
+                await apiCall('/release', 'POST', { slot_id: slotId });
+                reloadUI();
+            } catch(e) { alert(e.message); }
+        };
+
+        function reloadUI() {
+            loadSessions();
+            loadDiscovery();
+        }
+    </script>
+</body>
+</html>
