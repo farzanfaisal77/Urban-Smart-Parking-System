@@ -1,0 +1,93 @@
+/* Top Navigation Bar */
+.admin-nav {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 2rem;
+    border-bottom: 1px solid #334155;
+    padding-bottom: 1rem;
+}
+.admin-nav button {
+    background: transparent;
+    color: var(--text-muted);
+    border: none;
+    font-size: 1.1rem;
+    font-weight: bold;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+}
+.admin-nav button:hover {
+    color: #fff;
+    background: rgba(255,255,255,0.05);
+}
+.admin-nav button.active {
+    color: #3b82f6;
+    background: rgba(59, 130, 246, 0.1);
+    border-bottom: 2px solid #3b82f6;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+/* Tab Content */
+.tab-content { display: none; }
+.tab-content.active { display: block; animation: fadeIn 0.3s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+.dashboard-layout {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 2rem;
+}
+.fancy-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    margin-top: 1rem;
+    background: rgba(30, 41, 59, 0.4);
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid #334155;
+}
+.fancy-table th {
+    background: rgba(15, 23, 42, 0.8);
+    color: #94a3b8;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    padding: 1rem;
+    text-align: left;
+    border-bottom: 1px solid #334155;
+}
+.fancy-table td {
+    padding: 1rem;
+    border-bottom: 1px solid #334155;
+    background: transparent;
+    vertical-align: middle;
+}
+.fancy-table tr:last-child td { border-bottom: none; }
+.fancy-table tr:hover td { background: rgba(59, 130, 246, 0.05); }
+
+.users-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+}
+.users-table th, .users-table td {
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid #334155;
+}
+.slot-types-container {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px dashed #334155;
+}
+select.slot-type-select {
+    background: #0f172a;
+    color: white;
+    border: 1px solid #334155;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+}

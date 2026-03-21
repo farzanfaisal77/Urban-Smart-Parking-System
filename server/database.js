@@ -1,7 +1,6 @@
 require('dotenv').config();
 const mysql = require('mysql2/promise');
 
-// It's safe to provide a placeholder or expect process.env.DATABASE_URL
 const pool = mysql.createPool({
     uri: process.env.DATABASE_URL || 'mysql://user:pass@localhost:3306/parking',
     waitForConnections: true,
@@ -19,8 +18,12 @@ async function initDB() {
             username VARCHAR(255) UNIQUE NOT NULL,
             password VARCHAR(255) NOT NULL,
             role VARCHAR(50) NOT NULL DEFAULT 'driver',
-            phone VARCHAR(50)
+            phone VARCHAR(50),
+            due_fees DECIMAL(10,2) DEFAULT 0.00
         )`);
+        
+        // Add due_fees column if it doesn't exist (migration)
+        try { await pool.query("ALTER TABLE users ADD COLUMN due_fees DECIMAL(10,2) DEFAULT 0.00"); } catch(e) {}
 
         // 2. Vehicles Table
         await pool.query(`CREATE TABLE IF NOT EXISTS vehicles (
@@ -37,8 +40,12 @@ async function initDB() {
             id INT AUTO_INCREMENT PRIMARY KEY,
             name VARCHAR(255) NOT NULL,
             address VARCHAR(255),
-            total_slots INT NOT NULL
+            total_slots INT NOT NULL,
+            price_per_hour DECIMAL(10,2) DEFAULT 0.00
         )`);
+
+        // Add price_per_hour column if it doesn't exist (migration)
+        try { await pool.query("ALTER TABLE parking_lots ADD COLUMN price_per_hour DECIMAL(10,2) DEFAULT 0.00"); } catch(e) {}
 
         // 4. Parking Slots Table
         await pool.query(`CREATE TABLE IF NOT EXISTS parking_slots (
@@ -64,11 +71,15 @@ async function initDB() {
             entry_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             exit_time TIMESTAMP NULL,
             duration_hours INT DEFAULT NULL,
+            fee_charged DECIMAL(10,2) DEFAULT NULL,
             status ENUM('active', 'completed') DEFAULT 'active',
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
             FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE,
             FOREIGN KEY (slot_id) REFERENCES parking_slots(id) ON DELETE CASCADE
         )`);
+
+        // Add fee_charged column if it doesn't exist (migration)
+        try { await pool.query("ALTER TABLE parking_sessions ADD COLUMN fee_charged DECIMAL(10,2) DEFAULT NULL"); } catch(e) {}
 
         // Insert Admin User if it doesn't exist
         const [rows] = await pool.query("SELECT id FROM users WHERE username = ?", ["admin"]);

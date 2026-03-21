@@ -51,7 +51,7 @@ app.post('/api/user/phone', async (req, res) => {
 // --- ADMIN API ---
 app.get('/api/admin/users', async (req, res) => {
     const sql = `
-        SELECT u.id, u.username, u.phone, 
+        SELECT u.id, u.username, u.phone, u.due_fees, 
                COALESCE(
                    JSON_ARRAYAGG(
                        JSON_OBJECT(
@@ -98,7 +98,7 @@ app.get('/api/admin/sessions', async (req, res) => {
                v.license_plate, v.type as vehicle_type,
                s.slot_number,
                l.name as lot_name,
-               ps.duration_hours
+               ps.duration_hours, ps.fee_charged
         FROM parking_sessions ps
         JOIN users u ON ps.user_id = u.id
         JOIN vehicles v ON ps.vehicle_id = v.id
@@ -145,14 +145,15 @@ app.delete('/api/admin/users/:id', async (req, res) => {
 });
 
 app.post('/api/lots', async (req, res) => {
-    let { name, address, total_slots } = req.body;
+    let { name, address, total_slots, price_per_hour } = req.body;
     total_slots = parseInt(total_slots, 10);
+    price_per_hour = parseFloat(price_per_hour) || 0.00;
     
     // Grab single connection for transaction safely
     const conn = await db.getConnection();
     try {
         await conn.beginTransaction();
-        const [result] = await conn.query("INSERT INTO parking_lots (name, address, total_slots) VALUES (?, ?, ?)", [name, address, total_slots]);
+        const [result] = await conn.query("INSERT INTO parking_lots (name, address, total_slots, price_per_hour) VALUES (?, ?, ?, ?)", [name, address, total_slots, price_per_hour]);
         const lotId = result.insertId;
         
         const insertions = [];
@@ -208,8 +209,31 @@ app.put('/api/admin/slots/:slotId/status', async (req, res) => {
     const { status } = req.body; 
     try {
         if (status === 'available') {
+            const [sessionRows] = await db.query(`
+                SELECT ps.id as session_id, ps.user_id, ps.entry_time, l.price_per_hour 
+                FROM parking_sessions ps
+                JOIN parking_slots s ON ps.slot_id = s.id
+                JOIN parking_lots l ON s.lot_id = l.id
+                WHERE ps.slot_id = ? AND ps.status = 'active'
+            `, [slotId]);
+
             await db.query("UPDATE parking_slots SET status = 'available', driver_id = NULL, vehicle_id = NULL, reserved_time = NULL WHERE id = ?", [slotId]);
             await db.query("UPDATE parking_sessions SET exit_time = CURRENT_TIMESTAMP, status = 'completed' WHERE slot_id = ? AND status = 'active'", [slotId]);
+            
+            if (sessionRows.length > 0) {
+                const { session_id, user_id, entry_time, price_per_hour } = sessionRows[0];
+                const now = new Date();
+                const entryDate = new Date(entry_time);
+                let hours = Math.ceil((now - entryDate) / (1000 * 60 * 60));
+                if (hours < 1 || isNaN(hours)) hours = 1;
+                
+                const fee = hours * parseFloat(price_per_hour || 0);
+                if (fee > 0) {
+                    await db.query("UPDATE users SET due_fees = due_fees + ? WHERE id = ?", [fee, user_id]);
+                    await db.query("UPDATE parking_sessions SET fee_charged = ? WHERE id = ?", [fee, session_id]);
+                }
+            }
+
             res.json({ success: true, message: "Slot forcefully liberated." });
         } else {
             await db.query("UPDATE parking_slots SET status = ?, driver_id = NULL, vehicle_id = NULL WHERE id = ?", [status, slotId]);
@@ -275,7 +299,7 @@ app.delete('/api/vehicles/:id', async (req, res) => {
 app.get('/api/lots', async (req, res) => {
     const sql = `
         SELECT 
-            l.id as lot_id, l.name, l.address, l.total_slots,
+            l.id as lot_id, l.name, l.address, l.total_slots, l.price_per_hour,
             COUNT(s.id) as total,
             CAST(SUM(CASE WHEN s.status = 'available' THEN 1 ELSE 0 END) AS UNSIGNED) as available_slots
         FROM parking_lots l
@@ -351,10 +375,32 @@ app.post('/api/release', async (req, res) => {
     try {
         await conn.beginTransaction();
 
+        const [sessionRows] = await conn.query(`
+            SELECT ps.id as session_id, ps.user_id, ps.entry_time, l.price_per_hour 
+            FROM parking_sessions ps
+            JOIN parking_slots s ON ps.slot_id = s.id
+            JOIN parking_lots l ON s.lot_id = l.id
+            WHERE ps.slot_id = ? AND ps.status = 'active'
+        `, [slot_id]);
+
         await conn.query("UPDATE parking_slots SET status = 'available', driver_id = NULL, vehicle_id = NULL, reserved_time = NULL WHERE id = ?", [slot_id]);
         
         // Finalize the active session for this slot
         await conn.query("UPDATE parking_sessions SET exit_time = CURRENT_TIMESTAMP, status = 'completed' WHERE slot_id = ? AND status = 'active'", [slot_id]);
+
+        if (sessionRows.length > 0) {
+            const { session_id, user_id, entry_time, price_per_hour } = sessionRows[0];
+            const now = new Date();
+            const entryDate = new Date(entry_time);
+            let hours = Math.ceil((now - entryDate) / (1000 * 60 * 60));
+            if (hours < 1 || isNaN(hours)) hours = 1;
+            
+            const fee = hours * parseFloat(price_per_hour || 0);
+            if (fee > 0) {
+                await conn.query("UPDATE users SET due_fees = due_fees + ? WHERE id = ?", [fee, user_id]);
+                await conn.query("UPDATE parking_sessions SET fee_charged = ? WHERE id = ?", [fee, session_id]);
+            }
+        }
 
         await conn.commit();
         res.json({ success: true, message: "Slot released successfully" });
@@ -382,6 +428,29 @@ app.get('/api/my-sessions/:userId', async (req, res) => {
     try {
         const [rows] = await db.query(sql, [userId]);
         res.json(rows);
+    } catch(err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/admin/users/:userId/dues', async (req, res) => {
+    let { amount } = req.body;
+    amount = parseFloat(amount);
+    if (isNaN(amount)) amount = 0;
+    
+    try {
+        await db.query("UPDATE users SET due_fees = ? WHERE id = ?", [amount, req.params.userId]);
+        res.json({ success: true, message: "Dues updated successfully" });
+    } catch(err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/user/dues/:userId', async (req, res) => {
+    try {
+        const [rows] = await db.query("SELECT due_fees FROM users WHERE id = ?", [req.params.userId]);
+        if (rows.length === 0) return res.status(404).json({ error: "User not found" });
+        res.json({ success: true, due_fees: rows[0].due_fees });
     } catch(err) {
         res.status(500).json({ error: err.message });
     }
